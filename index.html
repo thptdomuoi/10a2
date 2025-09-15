@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ Thống Điểm Danh Bằng Khuôn Mặt</title>
+    
+    <!-- Tích hợp Tailwind CSS để làm giao diện nhanh và đẹp -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Tích hợp thư viện face-api.js -->
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    
+    <style>
+        /* CSS tùy chỉnh */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f2f5;
+        }
+        #webcam-container {
+            position: relative;
+            width: 100%;
+            max-width: 640px;
+            margin: auto;
+            border-radius: 0.75rem;
+            overflow: hidden;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        #webcam {
+            width: 100%;
+            height: auto;
+            transform: scaleX(-1); /* Lật webcam để giống như soi gương */
+        }
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: rgba(0,0,0,0.6);
+            color: white;
+            font-size: 1.25rem;
+            text-align: center;
+            padding: 1rem;
+            z-index: 10;
+        }
+        /* Custom styles for file input */
+        .custom-file-input::-webkit-file-upload-button {
+          visibility: hidden;
+        }
+        .custom-file-input::before {
+          content: 'Chọn ảnh (nên nhiều hơn 1)';
+          display: inline-block;
+          background: #4f46e5;
+          color: white;
+          border-radius: 0.375rem;
+          padding: 0.5rem 1rem;
+          outline: none;
+          white-space: nowrap;
+          -webkit-user-select: none;
+          cursor: pointer;
+          font-weight: 600;
+        }
+        .custom-file-input:hover::before {
+          background: #4338ca;
+        }
+        .custom-file-input:active::before {
+          background: #3730a3;
+        }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="antialiased text-gray-800">
+
+    <div class="container mx-auto p-4 md:p-8 max-w-5xl">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-indigo-600">Hệ Thống Điểm Danh Khuôn Mặt</h1>
+            <p class="text-gray-600 mt-2">Sử dụng `face-api.js` và Firebase</p>
+        </header>
+
+        <!-- Nút chuyển đổi giao diện -->
+        <div class="flex justify-center mb-6 bg-gray-200 rounded-lg p-1 max-w-xs mx-auto">
+            <button id="switchToStudent" class="w-1/2 p-2 rounded-md font-semibold text-sm bg-white text-indigo-600 shadow">Điểm Danh</button>
+            <button id="switchToAdmin" class="w-1/2 p-2 rounded-md font-semibold text-sm text-gray-600">Quản Lý</button>
+        </div>
+
+        <!-- Giao diện cho sinh viên điểm danh -->
+        <div id="student-view">
+            <div id="webcam-container">
+                <div id="loader" class="overlay">
+                    <div class="flex flex-col items-center">
+                         <svg class="animate-spin h-8 w-8 text-white mb-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                        <p id="loader-text">Đang tải model và khởi động webcam...</p>
+                    </div>
+                </div>
+                <video id="webcam" autoplay muted playsinline></video>
+            </div>
+            <div class="text-center mt-6">
+                <button id="check-in-button" class="bg-indigo-600 text-white font-bold py-3 px-8 rounded-lg shadow-lg hover:bg-indigo-700 transition duration-300 disabled:bg-gray-400" disabled>
+                    Điểm Danh
+                </button>
+            </div>
+             <div id="result-message" class="mt-4 text-center text-lg font-medium"></div>
+        </div>
+
+        <!-- Giao diện cho admin quản lý -->
+        <div id="admin-view" class="hidden">
+            <div class="bg-white p-6 rounded-xl shadow-md">
+                <h2 class="text-2xl font-bold mb-4">Thêm Sinh Viên Mới</h2>
+                <div class="space-y-4">
+                    <div>
+                        <label for="studentName" class="block text-sm font-medium text-gray-700">Tên hoặc Mã sinh viên:</label>
+                        <input type="text" id="studentName" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Ảnh chân dung:</label>
+                        <input type="file" id="imageUpload" multiple accept="image/jpeg, image/png" class="custom-file-input text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100">
+                    </div>
+                    <div class="text-right">
+                        <button id="save-student-button" class="bg-green-500 text-white font-semibold py-2 px-6 rounded-lg hover:bg-green-600 transition duration-300">
+                            Lưu Sinh Viên
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-white p-6 rounded-xl shadow-md mt-8">
+                 <h2 class="text-2xl font-bold mb-4">Danh Sách Lớp</h2>
+                 <ul id="student-list" class="divide-y divide-gray-200">
+                    <!-- Danh sách sinh viên sẽ được tải vào đây -->
+                 </ul>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Tích hợp Firebase SDK -->
+    <script type="module">
+        // IMPORT FIREBASE MODULES
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getFirestore, collection, getDocs, addDoc, doc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+        // ====================================================================================
+        // CẤU HÌNH FIREBASE ĐÃ ĐƯỢC CẬP NHẬT
+        // ====================================================================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyAtjEr4TbDsLHdycc8bHhlTN3Ovw4zYM5g",
+            authDomain: "a2-b43d6.firebaseapp.com",
+            projectId: "a2-b43d6",
+            storageBucket: "a2-b43d6.appspot.com",
+            messagingSenderId: "19454507527",
+            appId: "1:19454507527:web:94684e3d57015c202408a2"
+        };
+        // ====================================================================================
+
+        // KHỞI TẠO FIREBASE VÀ FIRESTORE
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // CÁC BIẾN VÀ ĐỐI TƯỢNG DOM
+        const webcamElement = document.getElementById('webcam');
+        const loader = document.getElementById('loader');
+        const loaderText = document.getElementById('loader-text');
+        const checkInButton = document.getElementById('check-in-button');
+        const resultMessage = document.getElementById('result-message');
+        
+        const studentView = document.getElementById('student-view');
+        const adminView = document.getElementById('admin-view');
+        const switchToStudentBtn = document.getElementById('switchToStudent');
+        const switchToAdminBtn = document.getElementById('switchToAdmin');
+
+        const studentNameInput = document.getElementById('studentName');
+        const imageUploadInput = document.getElementById('imageUpload');
+        const saveStudentButton = document.getElementById('save-student-button');
+        const studentList = document.getElementById('student-list');
+
+        let faceMatcher = null;
+
+        // CHUYỂN ĐỔI GIAO DIỆN
+        switchToStudentBtn.addEventListener('click', () => {
+            studentView.classList.remove('hidden');
+            adminView.classList.add('hidden');
+            switchToStudentBtn.classList.add('bg-white', 'text-indigo-600', 'shadow');
+            switchToStudentBtn.classList.remove('text-gray-600');
+            switchToAdminBtn.classList.remove('bg-white', 'text-indigo-600', 'shadow');
+            switchToAdminBtn.classList.add('text-gray-600');
+        });
+
+        switchToAdminBtn.addEventListener('click', () => {
+            adminView.classList.remove('hidden');
+            studentView.classList.add('hidden');
+            switchToAdminBtn.classList.add('bg-white', 'text-indigo-600', 'shadow');
+            switchToAdminBtn.classList.remove('text-gray-600');
+            switchToStudentBtn.classList.remove('bg-white', 'text-indigo-600', 'shadow');
+            switchToStudentBtn.classList.add('text-gray-600');
+            loadRegisteredStudents();
+        });
+
+
+        // HÀM CHÍNH - KHỞI ĐỘNG ỨNG DỤNG
+        async function run() {
+            try {
+                // Tải các model của face-api.js
+                // Bạn cần đảm bảo có thư mục /models ngang hàng với file html này
+                await Promise.all([
+                    faceapi.nets.tinyFaceDetector.loadFromUri('./models'),
+                    faceapi.nets.faceLandmark68Net.loadFromUri('./models'),
+                    faceapi.nets.faceRecognitionNet.loadFromUri('./models'),
+                    faceapi.nets.ssdMobilenetv1.loadFromUri('./models'),
+                ]);
+                
+                // Khởi động webcam
+                await startWebcam();
+                
+                // Tải dữ liệu khuôn mặt đã đăng ký
+                loaderText.innerText = 'Đang tải dữ liệu lớp học...';
+                await loadTrainingData();
+
+                loader.style.display = 'none';
+                checkInButton.disabled = false;
+            } catch (error) {
+                console.error(error);
+                loaderText.innerText = 'Lỗi! Không thể tải model. Hãy chắc chắn bạn đã tạo thư mục /models và chạy trang web qua một server (ví dụ: Live Server).';
+            }
+        }
+        
+        // HÀM KHỞI ĐỘNG WEBCAM
+        async function startWebcam() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
+                webcamElement.srcObject = stream;
+            } catch (err) {
+                console.error("Lỗi bật webcam:", err);
+                loaderText.innerText = 'Lỗi! Không thể truy cập webcam. Vui lòng cấp quyền.';
+            }
+        }
+
+        // HÀM TẢI DỮ LIỆU ĐÃ HUẤN LUYỆN TỪ FIRESTORE
+        async function loadTrainingData() {
+            try {
+                const studentsCol = collection(db, "students");
+                const studentsSnapshot = await getDocs(studentsCol);
+                
+                if (studentsSnapshot.empty) {
+                     console.warn("Chưa có sinh viên nào trong cơ sở dữ liệu.");
+                     resultMessage.innerText = "Chưa có dữ liệu lớp học. Vui lòng thêm sinh viên ở mục Quản lý.";
+                     return;
+                }
+
+                const labeledFaceDescriptors = await Promise.all(
+                    studentsSnapshot.docs.map(async (doc) => {
+                        const data = doc.data();
+                        const descriptors = [];
+                        for (const desc of data.descriptors) {
+                            // Dữ liệu từ Firestore là object, cần chuyển về Float32Array
+                            descriptors.push(new Float32Array(Object.values(desc)));
+                        }
+                        return new faceapi.LabeledFaceDescriptors(data.name, descriptors);
+                    })
+                );
+
+                faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.55); // Ngưỡng nhận diện
+                console.log("Đã tải xong dữ liệu huấn luyện.");
+                resultMessage.innerText = "Sẵn sàng điểm danh!";
+            } catch (error) {
+                 console.error("Lỗi tải dữ liệu từ Firestore:", error);
+                 resultMessage.innerHTML = `<span class="text-red-600">Lỗi kết nối Firestore! Hãy kiểm tra lại cấu hình Firebase và các quy tắc bảo mật (rules) của bạn.</span>`;
+            }
+        }
+
+        // SỰ KIỆN NHẤN NÚT ĐIỂM DANH
+        checkInButton.addEventListener('click', async () => {
+            if (!faceMatcher) {
+                resultMessage.textContent = 'Dữ liệu chưa sẵn sàng, vui lòng thử lại.';
+                return;
+            }
+            
+            resultMessage.textContent = 'Đang nhận diện...';
+            const canvas = faceapi.createCanvasFromMedia(webcamElement);
+            // document.body.append(canvas); // Dòng này chỉ dùng để debug, có thể xóa
+            const displaySize = { width: webcamElement.width, height: webcamElement.height };
+            faceapi.matchDimensions(canvas, displaySize);
+
+            const detections = await faceapi.detectAllFaces(webcamElement, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptors();
+            
+            if (detections.length === 0) {
+                 resultMessage.textContent = 'Không tìm thấy khuôn mặt nào!';
+                 return;
+            }
+            if (detections.length > 1) {
+                 resultMessage.textContent = 'Phát hiện nhiều khuôn mặt, vui lòng chỉ điểm danh một người!';
+                 return;
+            }
+
+            const resizedDetections = faceapi.resizeResults(detections, displaySize);
+            const bestMatch = faceMatcher.findBestMatch(resizedDetections[0].descriptor);
+
+            if (bestMatch.label !== 'unknown') {
+                resultMessage.innerHTML = `<span class="text-green-600">Điểm danh thành công! Chào bạn ${bestMatch.label}.</span>`;
+                // Ghi nhận điểm danh vào Firestore
+                await addDoc(collection(db, "attendance"), {
+                    name: bestMatch.label,
+                    timestamp: new Date()
+                });
+            } else {
+                resultMessage.innerHTML = `<span class="text-red-600">Không nhận diện được. Vui lòng thử lại.</span>`;
+            }
+        });
+
+
+        // LOGIC PHẦN ADMIN
+        saveStudentButton.addEventListener('click', async () => {
+            const name = studentNameInput.value;
+            const images = imageUploadInput.files;
+
+            if (!name || images.length === 0) {
+                alert('Vui lòng nhập tên và chọn ít nhất một ảnh.');
+                return;
+            }
+            
+            saveStudentButton.disabled = true;
+            saveStudentButton.textContent = 'Đang xử lý...';
+
+            try {
+                const descriptors = [];
+                for (const image of images) {
+                    const img = await faceapi.bufferToImage(image);
+                    const detection = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
+                    if (detection) {
+                        descriptors.push(detection.descriptor);
+                    }
+                }
+                
+                if (descriptors.length === 0) {
+                    alert('Không thể nhận diện được khuôn mặt trong bất kỳ ảnh nào bạn tải lên.');
+                    return;
+                }
+
+                // Lưu vào Firestore
+                const studentDoc = doc(db, 'students', name);
+                await setDoc(studentDoc, {
+                    name: name,
+                    descriptors: descriptors.map(d => Array.from(d)) // Chuyển Float32Array thành mảng thường để lưu
+                });
+
+                alert(`Đã lưu thành công sinh viên ${name}!`);
+                studentNameInput.value = '';
+                imageUploadInput.value = '';
+                loadRegisteredStudents(); // Tải lại danh sách
+                loadTrainingData(); // Cập nhật lại face matcher
+            } catch (error) {
+                console.error("Lỗi khi lưu sinh viên:", error);
+                alert("Đã xảy ra lỗi, vui lòng xem console.");
+            } finally {
+                saveStudentButton.disabled = false;
+                saveStudentButton.textContent = 'Lưu Sinh Viên';
+            }
+        });
+        
+        // HÀM TẢI VÀ HIỂN THỊ DANH SÁCH SINH VIÊN
+        async function loadRegisteredStudents() {
+            studentList.innerHTML = '<li class="p-4 text-center">Đang tải...</li>';
+            const studentsCol = collection(db, "students");
+            const studentsSnapshot = await getDocs(studentsCol);
+            
+            if (studentsSnapshot.empty) {
+                studentList.innerHTML = '<li class="p-4 text-center text-gray-500">Chưa có sinh viên nào.</li>';
+                return;
+            }
+
+            studentList.innerHTML = '';
+            studentsSnapshot.docs.forEach(doc => {
+                const student = doc.data();
+                const li = document.createElement('li');
+                li.className = 'p-4 flex items-center justify-between';
+                li.innerHTML = `<span class="font-medium">${student.name}</span> <span class="text-sm text-gray-500">${student.descriptors.length} ảnh đã đăng ký</span>`;
+                studentList.appendChild(li);
+            });
+        }
+
+
+        // Chạy ứng dụng
+        run();
+
+    </script>
+</body>
+</html>
+
